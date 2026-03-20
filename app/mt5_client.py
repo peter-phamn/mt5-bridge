@@ -204,6 +204,14 @@ class MT5Client:
         from_utc = _to_utc(from_dt)
         to_utc = _to_utc(to_dt)
 
+        logger.debug(
+            "copy_rates_range params → symbol=%r tf_str=%r tf_int=%d "
+            "from=%r (type=%s) to=%r (type=%s)",
+            symbol, timeframe_str, tf,
+            from_utc, type(from_utc).__name__,
+            to_utc, type(to_utc).__name__,
+        )
+
         t0 = time.perf_counter()
         rates = mt5.copy_rates_range(symbol, tf, from_utc, to_utc)
         elapsed = time.perf_counter() - t0
