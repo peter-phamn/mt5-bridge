@@ -126,7 +126,7 @@ def _compute_volume_features(df: pd.DataFrame, window: int) -> None:
 
     # ── z-score ──────────────────────────────────────────────────────────────
     roll_mean = vol_s.rolling(window, min_periods=1).mean().to_numpy()
-    roll_std  = vol_s.rolling(window, min_periods=2).std().to_numpy()
+    roll_std  = vol_s.rolling(window, min_periods=2).std().to_numpy(copy=True)
 
     # In-place normalisation: NaN (warmup) and zero → 1.0
     # Keeps z-score = 0 rather than ±inf when std is undefined or flat
