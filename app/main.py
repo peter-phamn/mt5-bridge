@@ -51,6 +51,23 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 
+@app.get("/probe", tags=["System"])
+def probe(symbol: str = Query("XAUUSD"), bars: int = Query(10)):
+    """Diagnostic: fetch the last N bars using copy_rates_from_pos (no date needed).
+    Use this to verify MT5 connection and data access independently of date params.
+    """
+    try:
+        df = mt5_client.copy_rates_from_pos(symbol.upper(), "M5", 0, bars)
+        return {
+            "ok": True,
+            "rows": len(df),
+            "latest": df["time"].iloc[-1].isoformat() if not df.empty else None,
+            "columns": list(df.columns),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 def health():
     connected = mt5_client.is_connected

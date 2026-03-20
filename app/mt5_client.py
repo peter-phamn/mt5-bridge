@@ -205,11 +205,8 @@ class MT5Client:
         to_utc = _to_utc(to_dt)
 
         logger.info(
-            "copy_rates_range params → symbol=%r tf_int=%d "
-            "from=%r (tz=%s) to=%r (tz=%s)",
-            symbol, tf,
-            from_utc, from_utc.tzinfo,
-            to_utc, to_utc.tzinfo,
+            "copy_rates_range params → symbol=%r tf_int=%d from=%r to=%r",
+            symbol, tf, from_utc, to_utc,
         )
 
         t0 = time.perf_counter()
@@ -218,8 +215,8 @@ class MT5Client:
 
         df = self._rates_to_df(rates, symbol, timeframe_str)
         logger.debug(
-            "copy_rates_range(%s, %s, %s, %s) → %d rows in %.3fs",
-            symbol, timeframe_str, from_utc.date(), to_utc.date(), len(df), elapsed,
+            "copy_rates_range(%s, %s) → %d rows in %.3fs",
+            symbol, timeframe_str, len(df), elapsed,
         )
         return df
 
