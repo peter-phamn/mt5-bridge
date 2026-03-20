@@ -202,7 +202,7 @@ class MT5Client:
         self._ensure_symbol_selected(symbol)
         tf = self._resolve_timeframe(timeframe_str)
         from_utc = _to_utc(from_dt)
-        to_utc = _to_utc(to_dt)
+        to_utc   = _to_utc(to_dt)
 
         logger.info(
             "copy_rates_range params → symbol=%r tf_int=%d from=%r to=%r",
@@ -214,7 +214,7 @@ class MT5Client:
         elapsed = time.perf_counter() - t0
 
         df = self._rates_to_df(rates, symbol, timeframe_str)
-        logger.debug(
+        logger.info(
             "copy_rates_range(%s, %s) → %d rows in %.3fs",
             symbol, timeframe_str, len(df), elapsed,
         )
@@ -352,6 +352,27 @@ def mt5_session(client: MT5Client):
         yield client
     finally:
         pass  # keep the connection alive across requests
+
+
+# Seconds per bar for each timeframe (used to estimate bar count)
+_TF_SECONDS: dict[str, int] = {
+    "M1": 60,    "M2": 120,   "M3": 180,   "M4": 240,   "M5": 300,
+    "M6": 360,   "M10": 600,  "M12": 720,  "M15": 900,  "M20": 1200,
+    "M30": 1800, "H1": 3600,  "H2": 7200,  "H3": 10800, "H4": 14400,
+    "H6": 21600, "H8": 28800, "H12": 43200,"D1": 86400, "W1": 604800,
+    "MN1": 2592000,
+}
+
+
+def _estimate_bar_count(tf_str: str, from_dt: datetime, to_dt: datetime) -> int:
+    """Upper-bound bar count for a time range, assuming 24/7 market.
+
+    Over-estimates deliberately so copy_rates_from always covers the full
+    requested range.  MT5 caps the response at its own history limit anyway.
+    """
+    bar_seconds = _TF_SECONDS.get(tf_str.upper(), 300)
+    total_seconds = max((to_dt - from_dt).total_seconds(), 0)
+    return int(total_seconds / bar_seconds) + 100
 
 
 def _to_utc(dt: datetime) -> datetime:
