@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/test_storage.py tests/test_mt5_client.py -v)",
+      "Bash(python -m pytest tests/test_api.py -v)",
+      "Bash(python -c \"import starlette; print\\(starlette.__version__\\); import httpx; print\\(httpx.__version__\\)\")",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -m pytest tests/test_mt5_client.py -v)",
+      "Bash(python -m pytest tests/test_feature_engineering.py -v)",
+      "Bash(python -m pytest tests/test_feature_engineering.py -q)",
+      "Bash(python -:*)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(python -m pytest tests/ -q)"
+    ]
+  }
+}
