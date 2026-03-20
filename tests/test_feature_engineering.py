@@ -8,6 +8,7 @@ import pytest
 from app.feature_engineering import (
     add_all_features,
     add_atr,
+    add_context_fields,
     add_spread_features,
     add_volume_features,
     compute_tick_volume_score,
@@ -260,15 +261,74 @@ class TestValidate:
 
 class TestAddAllFeatures:
     def test_all_expected_columns_present(self):
-        df = add_all_features(make_df(60))
+        df = add_all_features(make_df(60), symbol="XAUUSD", timeframe="M5")
         for col in ("atr", "spread_abs", "spread_pct", "spread_to_atr",
-                    "tick_volume_zscore", "tick_volume_percentile", "tick_volume_score"):
+                    "tick_volume_zscore", "tick_volume_percentile", "tick_volume_score",
+                    "symbol", "timeframe", "return", "hour"):
             assert col in df.columns, f"missing: {col}"
 
     def test_no_mutation_of_input(self):
         original = make_df(30)
         cols_before = set(original.columns)
         add_all_features(original)
+        assert set(original.columns) == cols_before
+
+
+# ---------------------------------------------------------------------------
+# Context fields (symbol, timeframe, return, hour)
+# ---------------------------------------------------------------------------
+
+class TestContextFields:
+    def test_return_and_hour_always_added(self):
+        df = add_context_fields(make_df(20))
+        assert "return" in df.columns
+        assert "hour" in df.columns
+
+    def test_symbol_timeframe_added_when_provided(self):
+        df = add_context_fields(make_df(20), symbol="XAUUSD", timeframe="M5")
+        assert (df["symbol"] == "XAUUSD").all()
+        assert (df["timeframe"] == "M5").all()
+
+    def test_symbol_timeframe_skipped_when_not_provided(self):
+        df = add_context_fields(make_df(20))
+        assert "symbol" not in df.columns
+        assert "timeframe" not in df.columns
+
+    def test_return_first_row_nan(self):
+        df = add_context_fields(make_df(20))
+        assert pd.isna(df["return"].iloc[0])
+
+    def test_return_is_pct_change(self):
+        df = add_context_fields(make_df(20))
+        expected = df["close"].pct_change()
+        pd.testing.assert_series_equal(df["return"], expected, check_names=False)
+
+    def test_hour_in_valid_range(self):
+        df = add_context_fields(make_df(50))
+        assert df["hour"].between(0, 23).all()
+
+    def test_hour_is_utc(self):
+        """time column is UTC-aware — hour must match dt.hour in UTC."""
+        df = make_df(10)
+        result = add_context_fields(df)
+        expected = df["time"].dt.hour
+        pd.testing.assert_series_equal(
+            result["hour"], expected, check_names=False, check_dtype=False
+        )
+
+    def test_no_recompute_if_exists(self):
+        """Columns already present must not be overwritten."""
+        df = make_df(10)
+        df["return"] = 999.0
+        df["hour"] = 99
+        result = add_context_fields(df)
+        assert (result["return"] == 999.0).all()
+        assert (result["hour"] == 99).all()
+
+    def test_no_mutation_of_input(self):
+        original = make_df(20)
+        cols_before = set(original.columns)
+        add_context_fields(original, symbol="XAUUSD", timeframe="M5")
         assert set(original.columns) == cols_before
 
 

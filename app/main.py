@@ -16,10 +16,7 @@ from app.schemas import (
     DownloadRequest,
     DownloadResponse,
     HealthResponse,
-    HistoryResponse,
     MultiDownloadRequest,
-    OHLCBar,
-    OHLCBarWithFeatures,
     SymbolInfo,
 )
 from app.storage import storage
@@ -49,23 +46,6 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
-
-
-@app.get("/probe", tags=["System"])
-def probe(symbol: str = Query("XAUUSD"), bars: int = Query(10)):
-    """Diagnostic: fetch the last N bars using copy_rates_from_pos (no date needed).
-    Use this to verify MT5 connection and data access independently of date params.
-    """
-    try:
-        df = mt5_client.copy_rates_from_pos(symbol.upper(), "M5", 0, bars)
-        return {
-            "ok": True,
-            "rows": len(df),
-            "latest": df["time"].iloc[-1].isoformat() if not df.empty else None,
-            "columns": list(df.columns),
-        }
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
@@ -115,93 +95,6 @@ def symbol_info(symbol: str):
         currency_profit=info.currency_profit,
         digits=info.digits,
         trade_contract_size=info.trade_contract_size,
-    )
-
-
-# ---------------------------------------------------------------------------
-# History (read from local Parquet)
-# ---------------------------------------------------------------------------
-
-
-@app.get("/history", response_model=HistoryResponse, tags=["Data"])
-def get_history(
-    symbol: str = Query(..., description="e.g. XAUUSD"),
-    timeframe: str = Query(..., description="e.g. M5, H1, D1"),
-    from_: datetime = Query(
-        ..., alias="from", description="Start datetime (ISO 8601, UTC assumed)"
-    ),
-    to: Optional[datetime] = Query(None, description="End datetime (defaults to now)"),
-    include_features: bool = Query(
-        False,
-        description="Compute and return engineered features (ATR, spread ratios, volume stats)",
-    ),
-    point: float = Query(
-        1.0,
-        description=(
-            "Symbol point size for spread→price conversion "
-            "(e.g. 0.01 for XAUUSD, 0.00001 for EURUSD). "
-            "Only used when include_features=true."
-        ),
-    ),
-):
-    if to is None:
-        to = datetime.now(timezone.utc)
-
-    if include_features:
-        df = data_service.get_history_with_features(symbol, timeframe, from_, to, point=point)
-    else:
-        df = data_service.get_history(symbol, timeframe, from_, to)
-
-    if df.empty:
-        return HistoryResponse(
-            symbol=symbol.upper(),
-            timeframe=timeframe.upper(),
-            from_=from_,
-            to=to,
-            count=0,
-            data=[],
-        )
-
-    def _to_bar(row) -> OHLCBar | OHLCBarWithFeatures:
-        base = dict(
-            time=row.time.to_pydatetime(),
-            open=row.open,
-            high=row.high,
-            low=row.low,
-            close=row.close,
-            volume=int(row.tick_volume),
-            spread=int(row.spread) if hasattr(row, "spread") else None,
-        )
-        if not include_features:
-            return OHLCBar(**base)
-
-        def _f(v):
-            """Return None for NaN floats so Pydantic accepts them."""
-            if isinstance(v, float) and v != v:
-                return None
-            return v
-
-        return OHLCBarWithFeatures(
-            **base,
-            atr=_f(getattr(row, "atr", None)),
-            spread_abs=_f(getattr(row, "spread_abs", None)),
-            spread_pct=_f(getattr(row, "spread_pct", None)),
-            spread_to_atr=_f(getattr(row, "spread_to_atr", None)),
-            tick_volume_zscore=_f(getattr(row, "tick_volume_zscore", None)),
-            tick_volume_percentile=_f(getattr(row, "tick_volume_percentile", None)),
-            tick_volume_score=_f(getattr(row, "tick_volume_score", None)),
-            spread_ok=getattr(row, "spread_ok", None),
-        )
-
-    bars = [_to_bar(row) for row in df.itertuples(index=False)]
-
-    return HistoryResponse(
-        symbol=symbol.upper(),
-        timeframe=timeframe.upper(),
-        from_=from_,
-        to=to,
-        count=len(bars),
-        data=bars,
     )
 
 
@@ -258,10 +151,7 @@ async def replay(
     to: Optional[datetime] = Query(None),
     speed: float = Query(0.0, description="Seconds between bars. 0=instant."),
 ):
-    """
-    Server-Sent Events stream that replays stored bars one by one.
-    Useful for live backtesting simulation.
-    """
+    """Server-Sent Events stream that replays stored bars one by one."""
     if to is None:
         to = datetime.now(timezone.utc)
 

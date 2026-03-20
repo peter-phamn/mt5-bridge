@@ -3,46 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from typing import Union
-
 from pydantic import BaseModel, field_validator
-
-
-class OHLCBar(BaseModel):
-    time: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int           # MT5 tick_volume
-    spread: Optional[int] = None  # raw spread in points
-
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
-
-
-class OHLCBarWithFeatures(OHLCBar):
-    """OHLCBar extended with engineered features.  All feature fields are
-    Optional because ATR/percentile columns have a NaN warmup period."""
-
-    atr: Optional[float] = None
-    spread_abs: Optional[float] = None       # spread in price units
-    spread_pct: Optional[float] = None       # spread_abs / close
-    spread_to_atr: Optional[float] = None    # spread_abs / ATR
-    tick_volume_zscore: Optional[float] = None
-    tick_volume_percentile: Optional[float] = None
-    tick_volume_score: Optional[float] = None
-    spread_ok: Optional[bool] = None         # True = spread filter passed
-
-
-class HistoryResponse(BaseModel):
-    symbol: str
-    timeframe: str
-    from_: datetime
-    to: datetime
-    count: int
-    data: List[Union[OHLCBarWithFeatures, OHLCBar]]
-
-    model_config = {"populate_by_name": True}
 
 
 class DownloadRequest(BaseModel):

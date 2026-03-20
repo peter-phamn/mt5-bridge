@@ -7,12 +7,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-import pandas as pd
 import pytest
 import httpx
 
 from app.main import app
-from app.storage import storage
 
 
 @pytest.fixture(scope="module")
@@ -26,22 +24,6 @@ async def ac():
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         yield client
-
-
-@pytest.fixture
-def sample_df():
-    times = pd.date_range("2023-06-01", periods=5, freq="1h", tz="UTC")
-    return pd.DataFrame(
-        {
-            "time": times,
-            "open": 1900.0,
-            "high": 1905.0,
-            "low": 1895.0,
-            "close": 1902.0,
-            "tick_volume": 200,
-            "spread": 5,
-        }
-    )
 
 
 # ── Health ──────────────────────────────────────────────────────────────────
@@ -81,52 +63,6 @@ async def test_list_mt5_symbols_503_when_not_connected(ac):
         mock_sym.side_effect = MT5Error("not connected")
         resp = await ac.get("/symbols?source=mt5")
     assert resp.status_code == 503
-
-
-# ── History ──────────────────────────────────────────────────────────────────
-
-@pytest.mark.anyio
-async def test_empty_history_returns_200(ac):
-    resp = await ac.get(
-        "/history",
-        params={
-            "symbol": "ZZZNONE",
-            "timeframe": "M5",
-            "from": "2023-01-01T00:00:00Z",
-            "to": "2023-01-02T00:00:00Z",
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["count"] == 0
-    assert data["data"] == []
-
-
-@pytest.mark.anyio
-async def test_history_with_stored_data(ac, sample_df):
-    storage.save(sample_df, "TESTHIST", "H1")
-    resp = await ac.get(
-        "/history",
-        params={
-            "symbol": "TESTHIST",
-            "timeframe": "H1",
-            "from": "2023-06-01T00:00:00Z",
-            "to": "2023-06-02T00:00:00Z",
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["count"] == 5
-    bar = data["data"][0]
-    assert "time" in bar
-    assert "open" in bar
-    assert "close" in bar
-
-
-@pytest.mark.anyio
-async def test_history_missing_required_params(ac):
-    resp = await ac.get("/history", params={"symbol": "XAUUSD"})
-    assert resp.status_code == 422
 
 
 # ── Download ─────────────────────────────────────────────────────────────────

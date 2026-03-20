@@ -32,9 +32,16 @@ NOT a drop-in replacement and is not used here.
 
 Column contract
 ---------------
-  volume  : MT5 tick_volume (ticks per bar — liquidity proxy)
-  spread  : MT5 spread in *points*; pass ``point=<symbol point>`` to convert
-            to price units (XAUUSD → 0.01, EURUSD → 0.00001, USDJPY → 0.001)
+  tick_volume : MT5 tick_volume (ticks per bar — liquidity proxy)
+  spread      : MT5 spread in *points*; pass ``point=<symbol point>`` to convert
+                to price units (XAUUSD → 0.01, EURUSD → 0.00001, USDJPY → 0.001)
+
+Context fields (added by _compute_context_fields / add_context_fields)
+-----------------------------------------------------------------------
+  symbol    : constant instrument label (e.g. "XAUUSD") — passed by caller.
+  timeframe : constant bar-size label (e.g. "M5") — passed by caller.
+  return    : close.pct_change() — percentage bar return; first row NaN.
+  hour      : UTC hour of bar open time (int8, 0–23).
 """
 from __future__ import annotations
 
@@ -143,6 +150,41 @@ def _compute_volume_features(df: pd.DataFrame, window: int) -> None:
     )
 
 
+def _compute_context_fields(
+    df: pd.DataFrame,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+) -> None:
+    """Write symbol, timeframe, return, hour.  Mutates df.
+
+    NEW columns (none existed before):
+      symbol    — constant string label; only written when caller provides it.
+      timeframe — constant string label; only written when caller provides it.
+      return    — bar-level percentage return: close.pct_change().
+                  First row is NaN (no prior close) — intentional.
+      hour      — UTC hour of bar open time (0–23).  time column is already
+                  stored as datetime64[us, UTC] so .dt.hour is UTC directly.
+
+    Skip-if-exists guard on every field prevents double-computation when the
+    function is called more than once on the same DataFrame.
+    """
+    if symbol is not None and "symbol" not in df.columns:
+        df["symbol"] = symbol
+
+    if timeframe is not None and "timeframe" not in df.columns:
+        df["timeframe"] = timeframe
+
+    if "return" not in df.columns:
+        df["return"] = df["close"].pct_change()
+
+    if "hour" not in df.columns:
+        # Ensure UTC-aware before extracting (defensive; storage guarantees UTC)
+        time_col = df["time"]
+        if time_col.dt.tz is None:
+            time_col = time_col.dt.tz_localize("UTC")
+        df["hour"] = time_col.dt.hour.astype(np.int8)
+
+
 def _compute_volume_score(
     df: pd.DataFrame,
     high_pct: float,
@@ -211,6 +253,21 @@ def compute_tick_volume_score(
         index=df.index,
         name="tick_volume_score",
     )
+
+
+def add_context_fields(
+    df: pd.DataFrame,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+) -> pd.DataFrame:
+    """Return new DataFrame with symbol, timeframe, return, hour columns added.
+
+    Copies once then delegates to ``_compute_context_fields``.
+    Use ``add_all_features`` when running the full pipeline to avoid extra copies.
+    """
+    df = df.copy()
+    _compute_context_fields(df, symbol, timeframe)
+    return df
 
 
 def spread_filter_mask(df: pd.DataFrame, point: float = 1.0) -> pd.Series:
@@ -287,19 +344,23 @@ def add_all_features(
     point: float = 1.0,
     atr_period: int | None = None,
     volume_window: int | None = None,
+    symbol: str | None = None,
+    timeframe: str | None = None,
 ) -> pd.DataFrame:
     """Full feature pipeline with exactly ONE DataFrame copy.
 
-    Prefer this over chaining ``add_atr → add_spread_features →
-    add_volume_features``; those incur 4 copies, this incurs 1.
+    Prefer this over chaining individual ``add_*`` helpers — those incur one
+    copy per call; this incurs exactly one.
 
-    Sequence: ATR → spread features (reuses ATR) → volume features → score.
+    Sequence: ATR → spread (reuses ATR) → volume → score → context fields.
 
     Parameters
     ----------
     point         : symbol point size for spread → price conversion.
     atr_period    : ATR lookback (default: settings.atr_period).
     volume_window : rolling window for volume stats (default: settings.tick_volume_window).
+    symbol        : instrument name written as a constant column (e.g. "XAUUSD").
+    timeframe     : bar size written as a constant column (e.g. "M5").
     """
     period = atr_period   or settings.atr_period
     window = volume_window or settings.tick_volume_window
@@ -310,6 +371,7 @@ def add_all_features(
     _compute_volume_features(df, window)
     if settings.tick_volume_scoring_enabled:
         _compute_volume_score(df, high_pct=0.80, low_pct=0.20)
+    _compute_context_fields(df, symbol, timeframe)
     return df
 
 

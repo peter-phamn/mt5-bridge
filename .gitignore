@@ -56,7 +56,7 @@ secrets/
 # MT5 Bridge — data storage
 # =============================================================================
 # Parquet data files (potentially large, machine-specific)
-data/
+# data/
 
 # =============================================================================
 # Testing

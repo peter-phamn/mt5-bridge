@@ -9,7 +9,6 @@ from typing import AsyncIterator, Optional
 import pandas as pd
 
 from app.config import settings
-from app.feature_engineering import add_all_features, spread_filter_mask, validate
 from app.mt5_client import MT5Error, mt5_client
 from app.storage import storage
 
@@ -132,30 +131,6 @@ class DataService:
             pd.Timestamp(from_dt),
             pd.Timestamp(to_dt),
         )
-
-    def get_history_with_features(
-        self,
-        symbol: str,
-        timeframe: str,
-        from_dt: datetime,
-        to_dt: datetime,
-        point: float = 1.0,
-    ) -> pd.DataFrame:
-        """Load OHLC and compute all engineered features.
-
-        Parameters
-        ----------
-        point : symbol point size for spread → price conversion.
-                Pass the value from MT5's symbol_info().point for accuracy.
-        """
-        df = self.get_history(symbol, timeframe, from_dt, to_dt)
-        if df.empty:
-            return df
-
-        df = validate(df)
-        df = add_all_features(df, point=point)
-        df["spread_ok"] = spread_filter_mask(df, point=point)
-        return df
 
     # ------------------------------------------------------------------
     # Replay / streaming
