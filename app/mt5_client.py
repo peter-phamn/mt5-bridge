@@ -176,6 +176,21 @@ class MT5Client:
     # Data fetching
     # ------------------------------------------------------------------
 
+    def _ensure_symbol_selected(self, symbol: str) -> None:
+        """Make symbol visible in Market Watch so MT5 will serve its data.
+
+        MT5 returns code=-2 (Invalid params) for symbols that are not selected
+        in Market Watch, even if they are valid.  ``symbol_select`` is a no-op
+        when the symbol is already visible.
+        """
+        if not mt5.symbol_select(symbol, True):
+            code, msg = mt5.last_error()
+            logger.warning(
+                "symbol_select(%r) failed — code=%d msg=%r. "
+                "Data request may still succeed if symbol is already visible.",
+                symbol, code, msg,
+            )
+
     def copy_rates_range(
         self,
         symbol: str,
@@ -184,6 +199,7 @@ class MT5Client:
         to_dt: datetime,
     ) -> pd.DataFrame:
         self.ensure_connected()
+        self._ensure_symbol_selected(symbol)
         tf = self._resolve_timeframe(timeframe_str)
         from_utc = _to_utc(from_dt)
         to_utc = _to_utc(to_dt)
