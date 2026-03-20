@@ -334,9 +334,15 @@ def mt5_session(client: MT5Client):
 
 
 def _to_utc(dt: datetime) -> datetime:
+    """Convert to naive UTC datetime for MT5 API.
+
+    MT5's copy_rates_range / copy_rates_from require naive datetime objects
+    and always interpret them as UTC.  Passing timezone-aware datetimes
+    causes error code -2 ('Terminal: Invalid params').
+    """
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt  # already naive — MT5 treats it as UTC
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 # Singleton

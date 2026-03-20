@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.mt5_client import MT5Client, MT5ConnectionError, MT5DataError, MT5Error, _backoff
+from app.mt5_client import MT5Client, MT5ConnectionError, MT5DataError, MT5Error, _backoff, _to_utc
 
 
 def make_rates(n: int = 5):
@@ -235,3 +235,28 @@ class TestMT5ClientOffline:
         delay = _backoff(100, base=2.0, max_delay=10.0)
         # With ±20 % jitter the result should still be near the cap
         assert delay <= 12.0  # cap + max jitter
+
+
+class TestToUtc:
+    def test_naive_datetime_returned_as_is(self):
+        from datetime import datetime
+        dt = datetime(2024, 1, 15, 8, 30, 0)
+        result = _to_utc(dt)
+        assert result.tzinfo is None
+        assert result == dt
+
+    def test_aware_datetime_stripped_to_naive_utc(self):
+        from datetime import datetime, timezone
+        dt = datetime(2024, 1, 15, 8, 30, 0, tzinfo=timezone.utc)
+        result = _to_utc(dt)
+        assert result.tzinfo is None
+        assert result == datetime(2024, 1, 15, 8, 30, 0)
+
+    def test_non_utc_timezone_converted_correctly(self):
+        from datetime import datetime, timezone, timedelta
+        # UTC+7 08:30 → UTC 01:30
+        tz_plus7 = timezone(timedelta(hours=7))
+        dt = datetime(2024, 1, 15, 8, 30, 0, tzinfo=tz_plus7)
+        result = _to_utc(dt)
+        assert result.tzinfo is None
+        assert result == datetime(2024, 1, 15, 1, 30, 0)
