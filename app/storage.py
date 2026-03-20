@@ -68,11 +68,14 @@ class ParquetStorage:
 
             if path.exists():
                 existing = self._read_file(path)
+                n_existing = len(existing)
                 combined = pd.concat([existing, year_df], ignore_index=True)
             else:
+                n_existing = 0
                 combined = year_df
 
-            cleaned, n_new = self._dedupe_and_sort(combined)
+            cleaned = self._dedupe_and_sort(combined)
+            n_new = len(cleaned) - n_existing
             self._write_file(cleaned, path)
 
             # Invalidate cache entry
@@ -219,11 +222,8 @@ class ParquetStorage:
         return df[["time", "open", "high", "low", "close", "tick_volume", "spread", "atr"]]
 
     @staticmethod
-    def _dedupe_and_sort(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-        before = len(df)
-        df = df.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
-        n_new = len(df) - (before - (before - len(df)))  # tricky; just return final
-        return df, len(df)
+    def _dedupe_and_sort(df: pd.DataFrame) -> pd.DataFrame:
+        return df.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
 
     @staticmethod
     def _read_file(path: Path) -> pd.DataFrame:

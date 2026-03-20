@@ -61,6 +61,7 @@ class DataService:
                 "rows_downloaded": 0,
                 "rows_new": 0,
                 "from_date": from_date,
+                "effective_from": effective_from,
                 "to_date": to_date,
                 "duration_seconds": time.perf_counter() - t0,
             }
@@ -84,6 +85,7 @@ class DataService:
             "rows_downloaded": rows_downloaded,
             "rows_new": rows_new,
             "from_date": from_date,
+            "effective_from": effective_from,
             "to_date": to_date,
             "duration_seconds": duration,
         }

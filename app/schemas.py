@@ -34,6 +34,7 @@ class DownloadResponse(BaseModel):
     rows_downloaded: int
     rows_new: int
     from_date: datetime
+    effective_from: Optional[datetime] = None
     to_date: datetime
     duration_seconds: float
 
