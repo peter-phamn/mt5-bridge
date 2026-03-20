@@ -187,8 +187,8 @@ Content-Type: application/json
 {
   "symbol": "XAUUSD",
   "timeframe": "M5",
-  "from_date": "2026-03-20T20:05:30.700Z",
-  "to_date": "2026-03-20T20:05:30.700Z"
+  "from_date": "2025-12-10T19:00:00Z",
+  "to_date": "2026-02-10T19:00:00Z"
 }
 ```
 

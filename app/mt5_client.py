@@ -4,7 +4,7 @@ import logging
 import random
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -248,14 +248,84 @@ class MT5Client:
         from_dt: datetime,
         to_dt: datetime,
         retries: int | None = None,
+        max_bars_per_chunk: int = 50_000,
     ) -> pd.DataFrame:
-        """Fetch OHLC data, reconnecting and retrying on transient failures.
+        """Fetch OHLC data with chunking for large date ranges.
+
+        MT5 enforces a per-request bar limit (~99,999).  When the requested
+        range exceeds ``max_bars_per_chunk`` bars, the range is split into
+        smaller chunks that each stay within the limit.  Results are
+        concatenated and deduplicated by time.
 
         Connection errors trigger a full ``reconnect()`` before the next attempt.
         Data errors (e.g. empty response) are retried without reconnecting.
-        ``MT5ConnectionError`` is re-raised immediately — no point retrying
-        if the terminal itself is unreachable.
+        ``MT5ConnectionError`` is re-raised immediately.
         """
+        bar_sec = _TF_SECONDS.get(timeframe_str.upper(), 300)
+        span_sec = (_to_utc(to_dt) - _to_utc(from_dt)).total_seconds()
+        estimated_bars = int(span_sec / bar_sec)
+
+        if estimated_bars <= max_bars_per_chunk:
+            return self._fetch_chunk(symbol, timeframe_str, from_dt, to_dt, retries)
+
+        # Split into chunks of at most max_bars_per_chunk bars
+        chunk_delta = timedelta(seconds=bar_sec * max_bars_per_chunk)
+        chunks: list[pd.DataFrame] = []
+        chunk_start = _to_utc(from_dt)
+        final_end   = _to_utc(to_dt)
+        total_chunks = -(-estimated_bars // max_bars_per_chunk)  # ceiling division
+
+        logger.info(
+            "[%s/%s] Large range (~%d bars) — splitting into %d chunks of ≤%d bars",
+            symbol, timeframe_str, estimated_bars, total_chunks, max_bars_per_chunk,
+        )
+
+        chunk_idx = 0
+        while chunk_start < final_end:
+            chunk_idx += 1
+            chunk_end = min(chunk_start + chunk_delta, final_end)
+            logger.info(
+                "[%s/%s] Chunk %d/%d: %s → %s",
+                symbol, timeframe_str, chunk_idx, total_chunks,
+                chunk_start.date(), chunk_end.date(),
+            )
+            try:
+                df_chunk = self._fetch_chunk(
+                    symbol, timeframe_str,
+                    chunk_start, chunk_end,
+                    retries,
+                )
+                chunks.append(df_chunk)
+            except MT5DataError as exc:
+                # Some chunks may legitimately have no data (e.g. gaps)
+                logger.warning(
+                    "[%s/%s] Chunk %d/%d returned no data: %s",
+                    symbol, timeframe_str, chunk_idx, total_chunks, exc,
+                )
+            chunk_start = chunk_end
+
+        if not chunks:
+            raise MT5DataError(
+                f"[{symbol}/{timeframe_str}] All chunks returned no data."
+            )
+
+        combined = pd.concat(chunks, ignore_index=True)
+        combined = combined.drop_duplicates(subset="time").sort_values("time").reset_index(drop=True)
+        logger.info(
+            "[%s/%s] Combined %d chunks → %d rows total",
+            symbol, timeframe_str, len(chunks), len(combined),
+        )
+        return combined
+
+    def _fetch_chunk(
+        self,
+        symbol: str,
+        timeframe_str: str,
+        from_dt: datetime,
+        to_dt: datetime,
+        retries: int | None = None,
+    ) -> pd.DataFrame:
+        """Single date-range fetch with retry logic (no chunking)."""
         retries = retries if retries is not None else settings.max_retries
         last_exc: Exception = MT5Error("Unknown error")
 
@@ -266,16 +336,14 @@ class MT5Client:
                 logger.info(
                     "[%s/%s] Fetched %d rows (%s → %s) on attempt %d",
                     symbol, timeframe_str, len(df),
-                    from_dt.date(), to_dt.date(), attempt,
+                    _to_utc(from_dt).date(), _to_utc(to_dt).date(), attempt,
                 )
                 return df
 
             except MT5ConnectionError:
-                # Terminal unreachable — no point burning remaining attempts
                 raise
 
             except MT5DataError as exc:
-                # Connected but no data — log and retry without reconnect
                 last_exc = exc
                 logger.warning(
                     "[%s/%s] Data error on attempt %d/%d: %s",
@@ -283,7 +351,6 @@ class MT5Client:
                 )
 
             except Exception as exc:
-                # Unexpected error — drop connection so next attempt reconnects
                 last_exc = exc
                 logger.warning(
                     "[%s/%s] Unexpected error on attempt %d/%d: %s",
@@ -336,6 +403,16 @@ class MT5Client:
 # ------------------------------------------------------------------
 # Module-level helpers
 # ------------------------------------------------------------------
+
+# Timeframe → bar duration in seconds (used to estimate bar counts for chunking)
+_TF_SECONDS: dict[str, int] = {
+    "M1": 60,    "M2": 120,   "M3": 180,   "M4": 240,   "M5": 300,
+    "M6": 360,   "M10": 600,  "M12": 720,  "M15": 900,  "M20": 1_200,
+    "M30": 1_800, "H1": 3_600, "H2": 7_200, "H3": 10_800, "H4": 14_400,
+    "H6": 21_600, "H8": 28_800, "H12": 43_200, "D1": 86_400,
+    "W1": 604_800, "MN1": 2_592_000,
+}
+
 
 def _backoff(attempt: int, base: float, max_delay: float = 60.0) -> float:
     """Exponential back-off with ±20 % jitter, capped at *max_delay* seconds."""
