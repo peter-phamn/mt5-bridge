@@ -9,6 +9,7 @@ from typing import AsyncIterator, Optional
 import pandas as pd
 
 from app.config import settings
+from app.feature_engineering import add_atr
 from app.mt5_client import MT5Error, mt5_client
 from app.storage import storage
 
@@ -70,6 +71,14 @@ class DataService:
         rows_downloaded = len(df)
 
         rows_new = storage.save(df, symbol, timeframe)
+
+        # Recompute ATR on the full stored dataset (all years) so that
+        # cross-year boundaries get correct warmup context, then persist.
+        df_all = storage.load(symbol, timeframe)
+        if not df_all.empty:
+            df_all = add_atr(df_all)
+            storage.write_enriched(df_all, symbol, timeframe)
+            logger.info("[%s %s] ATR recomputed on %d rows", symbol, timeframe, len(df_all))
 
         duration = time.perf_counter() - t0
         logger.info(

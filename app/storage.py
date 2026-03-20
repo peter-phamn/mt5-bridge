@@ -164,6 +164,26 @@ class ParquetStorage:
             return []
         return [p.name for p in sorted(sym_dir.iterdir()) if p.is_dir()]
 
+    def write_enriched(self, df: pd.DataFrame, symbol: str, timeframe: str) -> None:
+        """Overwrite per-year files with enriched data (e.g. computed ATR).
+
+        Unlike ``save()``, this fully replaces each year's file rather than
+        merging — use after ATR/feature recomputation on the full dataset.
+        """
+        df = self._normalize(df)
+        df["_year"] = df["time"].dt.year
+        for year, year_df in df.groupby("_year"):
+            year_df = (
+                year_df.drop(columns="_year")
+                .sort_values("time")
+                .reset_index(drop=True)
+            )
+            path = self._parquet_path(symbol, timeframe, int(year))
+            self._write_file(year_df, path)
+            cache_key = self._cache_key(symbol, timeframe, int(year))
+            self._cache.pop(cache_key, None)
+        df.drop(columns="_year", inplace=True, errors="ignore")
+
     def clear_cache(self) -> None:
         self._cache.clear()
 
