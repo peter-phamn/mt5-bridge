@@ -25,7 +25,7 @@ class DownloadRequest(BaseModel):
     @field_validator("symbol")
     @classmethod
     def validate_symbol(cls, v: str) -> str:
-        return v.upper().strip()
+        return v.strip()  # preserve case — MT5 symbols are case-sensitive (e.g. XAUUSDm)
 
 
 class DownloadResponse(BaseModel):
