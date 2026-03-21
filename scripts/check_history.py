@@ -24,14 +24,14 @@ setup_logging("WARNING")  # suppress INFO noise
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Check MT5 history availability.")
-    p.add_argument("--symbol",    default="XAUUSD")
+    p.add_argument("--symbol",    default="XAUUSDm")
     p.add_argument("--timeframe", default="M5")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    symbol    = args.symbol.upper()
+    symbol    = args.symbol          # preserve original case — MT5 is case-sensitive
     timeframe = args.timeframe.upper()
 
     if not mt5_client.initialize():

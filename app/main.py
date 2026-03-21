@@ -83,7 +83,7 @@ def list_symbols(source: str = Query("local", enum=["local", "mt5"])):
 @app.get("/symbols/{symbol}", response_model=SymbolInfo, tags=["Data"])
 def symbol_info(symbol: str):
     try:
-        info = mt5_client.get_symbol_info(symbol.upper())
+        info = mt5_client.get_symbol_info(symbol)
     except MT5Error as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     if info is None:

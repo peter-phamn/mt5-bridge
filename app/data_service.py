@@ -39,7 +39,6 @@ class DataService:
         if to_date is None:
             to_date = datetime.now(timezone.utc)
 
-        symbol = symbol.upper()
         timeframe = timeframe.upper()
 
         # Incremental: advance from_date to just after last stored bar

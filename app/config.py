@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     data_path: Path = Path("data/mt5")
 
     # Symbols & timeframes to track
-    default_symbols: List[str] = ["XAUUSD", "EURUSD", "USDJPY"]
+    default_symbols: List[str] = ["XAUUSDm", "EURUSD", "USDJPY"]
     default_timeframes: List[str] = ["M1", "M5", "M15", "H1", "D1"]
 
     # API
