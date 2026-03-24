@@ -64,25 +64,38 @@ def main() -> None:
 
     mt5.symbol_select(symbol, True)
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    probe_from = PROBE_FROM.replace(tzinfo=None)
+    import pandas as pd  # noqa: PLC0415
+    from datetime import timedelta
 
-    rates = mt5.copy_rates_range(symbol, tf_int, probe_from, now)
+    bar_sec    = TF_SECONDS.get(tf, 300)
+    now        = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Each probe window covers ~50,000 bars worth of time
+    window_sec = bar_sec * 50_000
+    probe      = PROBE_FROM.replace(tzinfo=None)
 
-    if rates is None or len(rates) == 0:
+    print("  Probing broker history (may take a few seconds)...\n")
+
+    oldest = None
+    newest = None
+    n_bars = 0
+
+    while probe < now:
+        probe_end = min(probe + timedelta(seconds=window_sec), now)
+        rates = mt5.copy_rates_range(symbol, tf_int, probe, probe_end)
+        if rates is not None and len(rates) > 0:
+            df_chunk = pd.DataFrame(rates)
+            df_chunk["time"] = pd.to_datetime(df_chunk["time"], unit="s", utc=True)
+            if oldest is None:
+                oldest = df_chunk["time"].iloc[0]
+            newest  = df_chunk["time"].iloc[-1]
+            n_bars += len(df_chunk)
+        probe = probe_end
+
+    if oldest is None:
         code, msg = mt5.last_error()
         print(f"ERROR: No data for {symbol}/{tf} — MT5 error code={code} msg={msg!r}")
         mt5_client.shutdown()
         sys.exit(1)
-
-    import pandas as pd  # noqa: PLC0415
-    df      = pd.DataFrame(rates)
-    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
-    df      = df.sort_values("time").reset_index(drop=True)
-
-    oldest    = df["time"].iloc[0]
-    newest    = df["time"].iloc[-1]
-    n_bars    = len(df)
     span_days = (newest - oldest).total_seconds() / 86400
 
     print(f"  Symbol      : {symbol}")
