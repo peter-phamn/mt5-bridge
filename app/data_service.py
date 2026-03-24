@@ -29,6 +29,7 @@ class DataService:
         timeframe: str,
         from_date: datetime,
         to_date: Optional[datetime] = None,
+        force: bool = False,
     ) -> dict:
         """
         Download OHLC data from MT5 and persist to Parquet.
@@ -42,18 +43,20 @@ class DataService:
         timeframe = timeframe.upper()
 
         # Incremental: advance from_date to just after last stored bar
-        latest = storage.get_latest_timestamp(symbol, timeframe)
+        # Skip when force=True so gaps in history can be backfilled
         effective_from = from_date
-        if latest is not None:
-            candidate = latest.to_pydatetime() + pd.Timedelta(seconds=1)
-            if candidate > effective_from:
-                effective_from = candidate
-                logger.info(
-                    "[%s %s] Incremental update from %s",
-                    symbol,
-                    timeframe,
-                    effective_from,
-                )
+        if not force:
+            latest = storage.get_latest_timestamp(symbol, timeframe)
+            if latest is not None:
+                candidate = latest.to_pydatetime() + pd.Timedelta(seconds=1)
+                if candidate > effective_from:
+                    effective_from = candidate
+                    logger.info(
+                        "[%s %s] Incremental update from %s",
+                        symbol,
+                        timeframe,
+                        effective_from,
+                    )
 
         if effective_from >= to_date:
             logger.info("[%s %s] Already up to date.", symbol, timeframe)

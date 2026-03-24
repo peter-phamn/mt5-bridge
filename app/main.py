@@ -111,6 +111,7 @@ def download(req: DownloadRequest):
             timeframe=req.timeframe,
             from_date=req.from_date,
             to_date=req.to_date,
+            force=req.force,
         )
     except MT5Error as exc:
         raise HTTPException(status_code=503, detail=str(exc))

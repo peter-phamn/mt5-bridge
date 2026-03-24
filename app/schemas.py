@@ -11,6 +11,7 @@ class DownloadRequest(BaseModel):
     timeframe: str
     from_date: datetime
     to_date: Optional[datetime] = None  # defaults to now
+    force: bool = False  # if True, ignore incremental check and re-download from from_date
 
     @field_validator("timeframe")
     @classmethod
