@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # DuckDB
     duckdb_enabled: bool = True
 
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+    redis_tick_maxlen: int = 50_000   # max entries kept per tick stream
+    redis_bar_maxlen: int = 10_000    # max entries kept per bar stream
+
     # Feature engineering
     atr_period: int = 14
     tick_volume_window: int = 100
