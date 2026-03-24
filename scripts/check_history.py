@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.mt5_client import mt5_client
+from app.config import TIMEFRAME_MAP
+from app.mt5_client import MT5_AVAILABLE, mt5_client
 from app.utils import setup_logging
 
 setup_logging("WARNING")  # suppress INFO noise
@@ -27,7 +29,8 @@ TF_SECONDS = {
     "W1": 604_800, "MN1": 2_592_000,
 }
 
-CHUNK = 99_999  # MT5 per-call cap
+# Probe start — go far enough back to catch any broker history
+PROBE_FROM = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,61 +49,52 @@ def main() -> None:
         print("ERROR: Cannot connect to MT5. Make sure terminal is running.")
         sys.exit(1)
 
+    if not MT5_AVAILABLE:
+        print("ERROR: MetaTrader5 package not available.")
+        sys.exit(1)
+
+    import MetaTrader5 as mt5  # type: ignore
+
     print(f"\nChecking history for {symbol} / {tf} ...\n")
 
-    bar_sec = TF_SECONDS.get(tf, 300)
+    tf_int  = TIMEFRAME_MAP.get(tf)
+    if tf_int is None:
+        print(f"ERROR: Unknown timeframe '{tf}'")
+        sys.exit(1)
 
-    # ── Walk backwards in 99,999-bar steps until broker returns nothing ──
-    oldest_bar = None
-    newest_bar = None
-    total_bars = 0
-    start_pos  = 0
+    mt5.symbol_select(symbol, True)
 
-    while True:
-        try:
-            df = mt5_client.copy_rates_from_pos(symbol, tf, start_pos, CHUNK)
-        except Exception as exc:
-            if start_pos == 0:
-                print(f"ERROR: {exc}")
-                mt5_client.shutdown()
-                sys.exit(1)
-            break  # no more data at this position
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    probe_from = PROBE_FROM.replace(tzinfo=None)
 
-        if df.empty:
-            break
+    rates = mt5.copy_rates_range(symbol, tf_int, probe_from, now)
 
-        total_bars += len(df)
-
-        # copy_rates_from_pos returns bars oldest-first within the window
-        batch_oldest = df["time"].iloc[0]
-        batch_newest = df["time"].iloc[-1]
-
-        if newest_bar is None:
-            newest_bar = batch_newest   # first batch = most recent bars
-        oldest_bar = batch_oldest       # keep updating — last batch = oldest
-
-        if len(df) < CHUNK:
-            break   # broker returned fewer than requested → reached the beginning
-
-        start_pos += CHUNK
-
-    if oldest_bar is None:
-        print("No data returned. Check symbol name and Market Watch.")
+    if rates is None or len(rates) == 0:
+        code, msg = mt5.last_error()
+        print(f"ERROR: No data for {symbol}/{tf} — MT5 error code={code} msg={msg!r}")
         mt5_client.shutdown()
-        return
+        sys.exit(1)
 
-    span_days = (newest_bar - oldest_bar).total_seconds() / 86400
+    import pandas as pd  # noqa: PLC0415
+    df      = pd.DataFrame(rates)
+    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    df      = df.sort_values("time").reset_index(drop=True)
+
+    oldest    = df["time"].iloc[0]
+    newest    = df["time"].iloc[-1]
+    n_bars    = len(df)
+    span_days = (newest - oldest).total_seconds() / 86400
 
     print(f"  Symbol      : {symbol}")
     print(f"  Timeframe   : {tf}")
-    print(f"  Bars found  : {total_bars:,}")
-    print(f"  Oldest bar  : {oldest_bar}  ← use this as from_date")
-    print(f"  Newest bar  : {newest_bar}")
+    print(f"  Bars found  : {n_bars:,}")
+    print(f"  Oldest bar  : {oldest}  ← use this as from_date")
+    print(f"  Newest bar  : {newest}")
     print(f"  Span        : {span_days:.1f} days  ({span_days/30:.1f} months)")
     print()
-    print(f"  This is all history the broker provides for {symbol} {tf}.")
+    print(f"  This is all history available for {symbol} {tf}.")
     print(f"\n  Safe from_date to use in /download:")
-    print(f'  "{oldest_bar.strftime("%Y-%m-%dT%H:%M:%SZ")}"\n')
+    print(f'  "{oldest.strftime("%Y-%m-%dT%H:%M:%SZ")}"\n')
 
     mt5_client.shutdown()
 
