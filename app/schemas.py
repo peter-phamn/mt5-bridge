@@ -97,6 +97,7 @@ class PositionInfo(BaseModel):
     tp: float
     price_current: float
     profit: float
+    swap: float = 0.0    # overnight swap cost accumulated on this position
     comment: str
     magic: int
     time: int            # UTC unix timestamp of open time
@@ -119,6 +120,7 @@ class OrderResult(BaseModel):
     volume: float
     comment: str
     done: bool
+    latency_ms: float = 0.0  # MT5 round-trip execution time in milliseconds
 
 
 class ModifyRequest(BaseModel):
@@ -139,6 +141,8 @@ class DealInfo(BaseModel):
     volume: float
     price: float
     profit: float
+    commission: float = 0.0  # per-deal commission charged by broker
+    swap: float = 0.0        # swap charged on this deal (usually on closing deal)
     comment: str
 
 
