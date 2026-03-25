@@ -40,6 +40,10 @@ async def run(
     - rates[-2] = last CLOSED bar      → published when its timestamp changes
     - No partial bars, no lookahead, strict alignment with MT5 server time
 
+    Bar payload includes ``spread`` (integer points as returned by MT5) so that
+    consumers can compute spread_usd = spread_pts * point_value without an
+    extra tick request.
+
     Parameters
     ----------
     symbol        : MT5 symbol name, case-sensitive (e.g. "XAUUSDm")
@@ -83,6 +87,8 @@ async def run(
 
             if bar_time != last_bar_time:
                 last_bar_time = bar_time
+                # spread is in integer points as MT5 returns in copy_rates_from_pos
+                spread_pts = int(closed["spread"]) if "spread" in closed.dtype.names else 0
                 payload = {
                     "time":        bar_time,
                     "open":        float(closed["open"]),
@@ -90,12 +96,13 @@ async def run(
                     "low":         float(closed["low"]),
                     "close":       float(closed["close"]),
                     "tick_volume": int(closed["tick_volume"]),
+                    "spread":      spread_pts,
                 }
                 await publish_bar(symbol, timeframe, payload)
                 logger.info(
-                    "BAR CLOSE [%s/%s] time=%d close=%.5f vol=%d",
+                    "BAR CLOSE [%s/%s] time=%d close=%.5f vol=%d spread=%d",
                     symbol, timeframe,
-                    bar_time, payload["close"], payload["tick_volume"],
+                    bar_time, payload["close"], payload["tick_volume"], spread_pts,
                 )
 
         except asyncio.CancelledError:
