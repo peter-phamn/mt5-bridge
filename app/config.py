@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     use_dynamic_spread: bool = True     # True → ATR-ratio filter; False → fixed
     spread_atr_ratio_threshold: float = 0.3  # dynamic-mode: max spread/ATR ratio
 
+    # Trading — magic number tags all bot orders (set to 0 to disable tagging)
+    trade_magic: int = 20260101
+
     @field_validator("data_path", mode="before")
     @classmethod
     def resolve_data_path(cls, v: str | Path) -> Path:

@@ -241,6 +241,182 @@ class MT5Client:
         )
         return df
 
+    # ------------------------------------------------------------------
+    # Trading execution
+    # ------------------------------------------------------------------
+
+    def get_account_info(self) -> dict:
+        """Return account balance, equity, margin, currency."""
+        self.ensure_connected()
+        info = mt5.account_info()
+        if info is None:
+            code, msg = mt5.last_error()
+            raise MT5DataError(f"account_info() returned None — code={code} msg={msg}")
+        return {
+            "balance":     info.balance,
+            "equity":      info.equity,
+            "margin":      info.margin,
+            "margin_free": info.margin_free,
+            "currency":    info.currency,
+            "login":       info.login,
+            "server":      info.server,
+        }
+
+    def get_positions(self, magic: int | None = None) -> list[dict]:
+        """Return open positions, optionally filtered by magic number."""
+        self.ensure_connected()
+        positions = mt5.positions_get()
+        if positions is None:
+            return []
+        result = []
+        for p in positions:
+            if magic is not None and p.magic != magic:
+                continue
+            result.append({
+                "ticket":        p.ticket,
+                "symbol":        p.symbol,
+                "type":          "buy" if p.type == 0 else "sell",
+                "volume":        p.volume,
+                "price_open":    p.price_open,
+                "sl":            p.sl,
+                "tp":            p.tp,
+                "price_current": p.price_current,
+                "profit":        p.profit,
+                "comment":       p.comment,
+                "magic":         p.magic,
+                "time":          int(p.time),
+            })
+        return result
+
+    def get_tick(self, symbol: str) -> dict:
+        """Return current bid/ask/last for a symbol."""
+        self.ensure_connected()
+        self._ensure_symbol_selected(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            code, msg = mt5.last_error()
+            raise MT5DataError(f"symbol_info_tick({symbol!r}) returned None — code={code} msg={msg}")
+        return {
+            "symbol":        symbol,
+            "bid":           tick.bid,
+            "ask":           tick.ask,
+            "last":          tick.last,
+            "spread_points": round(tick.ask - tick.bid, 5),
+            "time":          int(tick.time),
+        }
+
+    def place_order(
+        self,
+        symbol: str,
+        side: str,
+        volume: float,
+        sl: float,
+        tp: float,
+        magic: int = 0,
+        comment: str = "bridge",
+    ) -> dict:
+        """Place a market order. side: 'BUY' | 'SELL'."""
+        self.ensure_connected()
+        request = {
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "symbol":       symbol,
+            "volume":       volume,
+            "type":         mt5.ORDER_TYPE_BUY if side.upper() == "BUY" else mt5.ORDER_TYPE_SELL,
+            "sl":           sl,
+            "tp":           tp,
+            "magic":        magic,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+            "comment":      comment,
+        }
+        logger.info(
+            "place_order: symbol=%s side=%s volume=%.2f sl=%.5f tp=%.5f magic=%d",
+            symbol, side, volume, sl, tp, magic,
+        )
+        result = mt5.order_send(request)
+        if result is None:
+            code, msg = mt5.last_error()
+            raise MT5Error(f"order_send returned None — code={code} msg={msg}")
+        return {
+            "retcode":    result.retcode,
+            "ticket":     result.order,
+            "fill_price": result.price,
+            "volume":     result.volume,
+            "comment":    result.comment,
+            "done":       result.retcode == mt5.TRADE_RETCODE_DONE,
+        }
+
+    def modify_position(self, ticket: int, sl: float, tp: float) -> dict:
+        """Update SL/TP of an open position."""
+        self.ensure_connected()
+        result = mt5.order_send({
+            "action":   mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "sl":       sl,
+            "tp":       tp,
+        })
+        if result is None:
+            code, msg = mt5.last_error()
+            raise MT5Error(f"modify_position({ticket}) returned None — code={code} msg={msg}")
+        return {
+            "retcode": result.retcode,
+            "comment": result.comment,
+            "done":    result.retcode == mt5.TRADE_RETCODE_DONE,
+        }
+
+    def close_position(self, ticket: int, lot: float | None = None) -> dict:
+        """Close a position by ticket. lot=None closes the full volume."""
+        self.ensure_connected()
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            raise MT5DataError(f"Position {ticket} not found")
+        pos = positions[0]
+        close_volume = round(lot, 2) if lot else pos.volume
+        result = mt5.order_send({
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "position":     ticket,
+            "symbol":       pos.symbol,
+            "volume":       close_volume,
+            "type":         mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+            "comment":      f"close:{ticket}",
+        })
+        if result is None:
+            code, msg = mt5.last_error()
+            raise MT5Error(f"close_position({ticket}) returned None — code={code} msg={msg}")
+        return {
+            "retcode":    result.retcode,
+            "ticket":     result.order,
+            "fill_price": result.price,
+            "volume":     result.volume,
+            "comment":    result.comment,
+            "done":       result.retcode == mt5.TRADE_RETCODE_DONE,
+        }
+
+    def get_deal_history(self, ticket: int) -> list[dict]:
+        """Return all deals associated with a position ticket."""
+        self.ensure_connected()
+        deals = mt5.history_deals_get(position=ticket)
+        if deals is None:
+            return []
+        return [
+            {
+                "deal":    d.ticket,
+                "ticket":  d.position_id,
+                "time":    int(d.time),
+                "type":    d.type,
+                "entry":   d.entry,   # 0=IN 1=OUT
+                "volume":  d.volume,
+                "price":   d.price,
+                "profit":  d.profit,
+                "comment": d.comment,
+            }
+            for d in deals
+        ]
+
+    # ------------------------------------------------------------------
+    # Large-range fetch helpers
+    # ------------------------------------------------------------------
+
     def fetch_with_retry(
         self,
         symbol: str,

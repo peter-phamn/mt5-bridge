@@ -72,3 +72,80 @@ class MultiDownloadRequest(BaseModel):
         if v not in TIMEFRAME_MAP:
             raise ValueError(f"Invalid timeframe '{v}'.")
         return v
+
+
+# ── Trading schemas ────────────────────────────────────────────────────────
+
+
+class AccountInfo(BaseModel):
+    balance: float
+    equity: float
+    margin: float
+    margin_free: float
+    currency: str
+    login: int
+    server: str
+
+
+class PositionInfo(BaseModel):
+    ticket: int
+    symbol: str
+    type: str            # "buy" | "sell"
+    volume: float
+    price_open: float
+    sl: float
+    tp: float
+    price_current: float
+    profit: float
+    comment: str
+    magic: int
+    time: int            # UTC unix timestamp of open time
+
+
+class OrderRequest(BaseModel):
+    symbol: str
+    side: str            # "BUY" | "SELL"
+    volume: float
+    sl: float = 0.0
+    tp: float = 0.0
+    magic: int = 0       # 0 = use server default (settings.trade_magic)
+    comment: str = "bridge"
+
+
+class OrderResult(BaseModel):
+    retcode: int
+    ticket: int
+    fill_price: float
+    volume: float
+    comment: str
+    done: bool
+
+
+class ModifyRequest(BaseModel):
+    sl: float
+    tp: float
+
+
+class CloseRequest(BaseModel):
+    lot: Optional[float] = None  # None = close full position
+
+
+class DealInfo(BaseModel):
+    deal: int
+    ticket: int
+    time: int
+    type: int
+    entry: int           # 0=IN 1=OUT
+    volume: float
+    price: float
+    profit: float
+    comment: str
+
+
+class TickInfo(BaseModel):
+    symbol: str
+    bid: float
+    ask: float
+    last: float
+    spread_points: float  # raw ask-bid difference in points
+    time: int             # UTC unix timestamp

@@ -13,11 +13,19 @@ from app.config import settings
 from app.data_service import data_service
 from app.mt5_client import MT5Error, mt5_client
 from app.schemas import (
+    AccountInfo,
+    CloseRequest,
+    DealInfo,
     DownloadRequest,
     DownloadResponse,
     HealthResponse,
+    ModifyRequest,
     MultiDownloadRequest,
+    OrderRequest,
+    OrderResult,
+    PositionInfo,
     SymbolInfo,
+    TickInfo,
 )
 from app.storage import storage
 from app.utils import setup_logging
@@ -28,17 +36,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting MT5 Data Service…")
+    logger.info("Starting MT5 Bridge…")
     mt5_client.initialize()
     yield
-    logger.info("Shutting down MT5 Data Service…")
+    logger.info("Shutting down MT5 Bridge…")
     mt5_client.shutdown()
 
 
 app = FastAPI(
-    title="MT5 Data Service",
-    description="Historical OHLC data API backed by MetaTrader 5 and Parquet storage.",
-    version="1.0.0",
+    title="MT5 Bridge",
+    description="Historical OHLC data + live trading API backed by MetaTrader 5.",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -140,6 +148,34 @@ async def download_multi(req: MultiDownloadRequest):
 
 
 # ---------------------------------------------------------------------------
+# History query
+# ---------------------------------------------------------------------------
+
+
+@app.get("/history", tags=["Data"])
+def history(
+    symbol: str = Query(...),
+    timeframe: str = Query(...),
+    from_: datetime = Query(..., alias="from"),
+    to: Optional[datetime] = Query(None),
+):
+    """Query stored OHLC+spread data by date range. Returns {symbol, timeframe, count, data[]}."""
+    if to is None:
+        to = datetime.now(timezone.utc)
+    try:
+        df = data_service.get_history(
+            symbol=symbol,
+            timeframe=timeframe,
+            from_dt=from_,
+            to_dt=to,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    records = df.to_dict(orient="records")
+    return {"symbol": symbol, "timeframe": timeframe, "count": len(records), "data": records}
+
+
+# ---------------------------------------------------------------------------
 # Replay (SSE stream for backtesting)
 # ---------------------------------------------------------------------------
 
@@ -186,3 +222,82 @@ def duckdb_query(
         raise HTTPException(status_code=500, detail=str(exc))
 
     return JSONResponse(content=df.to_dict(orient="records"))
+
+
+# ---------------------------------------------------------------------------
+# Trading — account info, positions, order execution
+# ---------------------------------------------------------------------------
+
+
+@app.get("/account", response_model=AccountInfo, tags=["Trading"])
+def get_account():
+    """Return current account balance, equity, margin."""
+    try:
+        return mt5_client.get_account_info()
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/positions", response_model=List[PositionInfo], tags=["Trading"])
+def get_positions(
+    magic: Optional[int] = Query(None, description="Filter by magic number (e.g. 20260101)"),
+):
+    """Return open positions. Filter by magic to see only bot orders."""
+    try:
+        return mt5_client.get_positions(magic=magic)
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/tick", response_model=TickInfo, tags=["Trading"])
+def get_tick(symbol: str = Query(...)):
+    """Return current bid/ask/last tick for a symbol."""
+    try:
+        return mt5_client.get_tick(symbol)
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/order", response_model=OrderResult, tags=["Trading"])
+def place_order(req: OrderRequest):
+    """Place a market order. Uses settings.trade_magic when req.magic == 0."""
+    magic = req.magic if req.magic != 0 else settings.trade_magic
+    try:
+        return mt5_client.place_order(
+            symbol=req.symbol,
+            side=req.side,
+            volume=req.volume,
+            sl=req.sl,
+            tp=req.tp,
+            magic=magic,
+            comment=req.comment,
+        )
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/modify/{ticket}", tags=["Trading"])
+def modify_position(ticket: int, req: ModifyRequest):
+    """Update SL/TP of an open position (used for breakeven moves)."""
+    try:
+        return mt5_client.modify_position(ticket, req.sl, req.tp)
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/close/{ticket}", tags=["Trading"])
+def close_position(ticket: int, req: CloseRequest = CloseRequest()):
+    """Close a position fully (lot=null) or partially (lot=0.01)."""
+    try:
+        return mt5_client.close_position(ticket, req.lot)
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/history/{ticket}", response_model=List[DealInfo], tags=["Trading"])
+def deal_history(ticket: int):
+    """Return all deals (entry + exit) for a closed position ticket."""
+    try:
+        return mt5_client.get_deal_history(ticket)
+    except MT5Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
