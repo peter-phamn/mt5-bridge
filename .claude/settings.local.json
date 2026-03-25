@@ -13,7 +13,10 @@
       "Bash(python -m pytest tests/ -x -q)",
       "Bash(python -m pytest tests/ -q)",
       "Bash(python -m pytest tests/test_feature_engineering.py::TestContextFields::test_hour_is_utc -q)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(pip show:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/**)"
     ]
   }
 }

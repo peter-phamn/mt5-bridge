@@ -89,12 +89,12 @@ async def main() -> None:
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
-    def _handle_signal(sig: signal.Signals) -> None:
-        logger.info("Signal %s received — shutting down…", sig.name)
-        stop_event.set()
+    def _handle_signal(sig, frame=None) -> None:
+        logger.info("Signal %s received — shutting down…", signal.Signals(sig).name)
+        loop.call_soon_threadsafe(stop_event.set)
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _handle_signal, sig)
+        signal.signal(sig, _handle_signal)
 
     await stop_event.wait()
 
