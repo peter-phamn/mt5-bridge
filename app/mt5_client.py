@@ -282,6 +282,7 @@ class MT5Client:
                 "tp":            p.tp,
                 "price_current": p.price_current,
                 "profit":        p.profit,
+                "swap":          getattr(p, "swap", 0.0),
                 "comment":       p.comment,
                 "magic":         p.magic,
                 "time":          int(p.time),
@@ -315,7 +316,11 @@ class MT5Client:
         magic: int = 0,
         comment: str = "bridge",
     ) -> dict:
-        """Place a market order. side: 'BUY' | 'SELL'."""
+        """Place a market order. side: 'BUY' | 'SELL'.
+
+        Returns OrderResult-compatible dict including latency_ms for execution
+        quality monitoring.
+        """
         self.ensure_connected()
         request = {
             "action":       mt5.TRADE_ACTION_DEAL,
@@ -332,7 +337,10 @@ class MT5Client:
             "place_order: symbol=%s side=%s volume=%.2f sl=%.5f tp=%.5f magic=%d",
             symbol, side, volume, sl, tp, magic,
         )
+        t0 = time.perf_counter()
         result = mt5.order_send(request)
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+
         if result is None:
             code, msg = mt5.last_error()
             raise MT5Error(f"order_send returned None — code={code} msg={msg}")
@@ -343,6 +351,7 @@ class MT5Client:
             "volume":     result.volume,
             "comment":    result.comment,
             "done":       result.retcode == mt5.TRADE_RETCODE_DONE,
+            "latency_ms": latency_ms,
         }
 
     def modify_position(self, ticket: int, sl: float, tp: float) -> dict:
@@ -393,22 +402,27 @@ class MT5Client:
         }
 
     def get_deal_history(self, ticket: int) -> list[dict]:
-        """Return all deals associated with a position ticket."""
+        """Return all deals associated with a position ticket.
+
+        Includes commission and swap for accurate net P&L calculation.
+        """
         self.ensure_connected()
         deals = mt5.history_deals_get(position=ticket)
         if deals is None:
             return []
         return [
             {
-                "deal":    d.ticket,
-                "ticket":  d.position_id,
-                "time":    int(d.time),
-                "type":    d.type,
-                "entry":   d.entry,   # 0=IN 1=OUT
-                "volume":  d.volume,
-                "price":   d.price,
-                "profit":  d.profit,
-                "comment": d.comment,
+                "deal":       d.ticket,
+                "ticket":     d.position_id,
+                "time":       int(d.time),
+                "type":       d.type,
+                "entry":      d.entry,   # 0=IN 1=OUT
+                "volume":     d.volume,
+                "price":      d.price,
+                "profit":     d.profit,
+                "commission": getattr(d, "commission", 0.0),
+                "swap":       getattr(d, "swap", 0.0),
+                "comment":    d.comment,
             }
             for d in deals
         ]
